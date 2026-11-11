@@ -1,0 +1,14 @@
+{
+  "name": "esp8266-herdr-bridge",
+  "version": "1.0.0",
+  "description": "Bridge between Herdr Unix socket and ESP8266 TFT companion display",
+  "main": "herdr-bridge.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node herdr-bridge.mjs"
+  },
+  "dependencies": {
+    "@serialport/parser-readline": "^12.0.0",
+    "serialport": "^12.0.0"
+  }
+}
