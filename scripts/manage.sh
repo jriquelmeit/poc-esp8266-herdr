@@ -3,22 +3,30 @@
 # Script de Gestión para Herdr ESP8266 Bridge y Puerto Serie
 # ==============================================================================
 
-PLIST_SRC="/Users/jriquelme/Desarrollo/poc/esp8266-herdr/bridge/launchd/com.herdr.esp8266-bridge.plist"
+# Resolver dinámicamente la raíz del proyecto para que sea 100% portable y versionable
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+PLIST_SRC="$PROJECT_DIR/bridge/launchd/com.herdr.esp8266-bridge.plist"
 PLIST_DST="$HOME/Library/LaunchAgents/com.herdr.esp8266-bridge.plist"
 LOG_OUT="$HOME/.config/herdr/esp8266-bridge.log"
 LOG_ERR="$HOME/.config/herdr/esp8266-bridge.err"
-PROJECT_DIR="/Users/jriquelme/Desarrollo/poc/esp8266-herdr"
 
 case "$1" in
     install)
         echo "==> Instalando LaunchAgent en macOS..."
         mkdir -p "$HOME/Library/LaunchAgents"
         mkdir -p "$HOME/.config/herdr"
-        cp "$PLIST_SRC" "$PLIST_DST"
+
+        # Generar el plist final reemplazando placeholders dinámicamente
+        sed -e "s|{{PROJECT_DIR}}|$PROJECT_DIR|g" \
+            -e "s|{{HOME}}|$HOME|g" \
+            "$PLIST_SRC" > "$PLIST_DST"
+
         launchctl unload "$PLIST_DST" 2>/dev/null
         launchctl load "$PLIST_DST"
         echo "✔ Servicio instalado y arrancado correctamente."
-        echo "  Ruta: $PLIST_DST"
+        echo "  Ruta generada: $PLIST_DST"
         ;;
 
     start)

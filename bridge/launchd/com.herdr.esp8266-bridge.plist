@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/jriquelme/Desarrollo/poc/esp8266-herdr/bridge/run.sh</string>
+        <string>{{PROJECT_DIR}}/bridge/run.sh</string>
     </array>
 
     <key>RunAtLoad</key>
@@ -18,12 +18,12 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/jriquelme/.config/herdr/esp8266-bridge.log</string>
+    <string>{{HOME}}/.config/herdr/esp8266-bridge.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/jriquelme/.config/herdr/esp8266-bridge.err</string>
+    <string>{{HOME}}/.config/herdr/esp8266-bridge.err</string>
 
     <key>WorkingDirectory</key>
-    <string>/Users/jriquelme/Desarrollo/poc/esp8266-herdr/bridge</string>
+    <string>{{PROJECT_DIR}}/bridge</string>
 </dict>
 </plist>
