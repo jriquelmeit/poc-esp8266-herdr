@@ -1,36 +1,91 @@
 #!/usr/bin/env node
 
 /**
- * Herdr ESP8266 TFT Companion Bridge
- * Lee el estado en tiempo real desde el socket de Herdr y lo transmite
- * al ESP8266 vía USB Serial con handshake seguro para no interferir con otros dispositivos.
+ * Herdr ESP8266 WiFi WebSocket Bridge
+ * Servidor WebSocket para macOS que lee el estado de Herdr en tiempo real
+ * desde su Unix Socket local y lo transmite a pantallas ESP8266 por red local WiFi.
  */
 
 import net from 'node:net';
 import path from 'node:path';
 import os from 'node:os';
-import { SerialPort } from 'serialport';
-import { ReadlineParser } from '@serialport/parser-readline';
+import { WebSocketServer, WebSocket } from 'ws';
 
-// Configuración por defecto
 const HERDR_SOCK_PATH = process.env.HERDR_SOCKET_PATH || path.join(os.homedir(), '.config/herdr/herdr.sock');
-const BAUD_RATE = 115200;
+const PORT = parseInt(process.env.HERDR_PORT || '8266', 10);
 const SNAPSHOT_INTERVAL_MS = 250;
-const HEARTBEAT_INTERVAL_MS = 1500;
-const PORT_SCAN_INTERVAL_MS = 2000;
+const HEARTBEAT_INTERVAL_MS = 2000;
 
-let activeSerialPort = null;
-let activeParser = null;
-let activeDevicePath = null;
 let lastPayloadSent = '';
 let lastSentTime = 0;
-const ignoredPorts = new Map(); // path -> timestamp hasta cuando ignorar
+const connectedClients = new Set();
 
-console.log('[Bridge] Iniciando Herdr ESP8266 Bridge...');
-console.log(`[Bridge] Socket Herdr: ${HERDR_SOCK_PATH}`);
+// Obtener IPs locales de la Mac
+function getLocalIpAddresses() {
+  const interfaces = os.networkInterfaces();
+  const ips = [];
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        ips.push(iface.address);
+      }
+    }
+  }
+  return ips;
+}
+
+const localIps = getLocalIpAddresses();
+
+console.log('========================================================');
+console.log('  Herdr ESP8266 WiFi WebSocket Server');
+console.log('========================================================');
+console.log(`[Bridge] Socket de Herdr : ${HERDR_SOCK_PATH}`);
+console.log(`[Bridge] Puerto WebSocket: ${PORT}`);
+console.log(`[Bridge] IP(s) local(es) para secrets.h:`);
+localIps.forEach((ip) => console.log(`   ➔ ws://${ip}:${PORT}/ws`));
+console.log('========================================================');
 
 // ==========================================
-// 1. GESTIÓN DEL SOCKET DE HERDR
+// 1. INICIAR SERVIDOR WEBSOCKET
+// ==========================================
+const wss = new WebSocketServer({ port: PORT, path: '/ws' });
+
+wss.on('connection', (ws, req) => {
+  const clientIp = req.socket.remoteAddress;
+  console.log(`[Bridge] Nuevo ESP8266 conectado desde ${clientIp}`);
+  connectedClients.add(ws);
+
+  // Enviar de inmediato el último estado disponible
+  if (lastPayloadSent) {
+    ws.send(lastPayloadSent);
+  }
+
+  ws.on('message', (message) => {
+    try {
+      const msgStr = message.toString();
+      if (msgStr.includes('HERDR_DISCOVER')) {
+        ws.send(JSON.stringify({ device: 'herdr-tft', v: 1, ready: true }));
+      }
+    } catch (e) {}
+  });
+
+  ws.on('close', () => {
+    console.log(`[Bridge] ESP8266 desconectado (${clientIp})`);
+    connectedClients.delete(ws);
+  });
+
+  ws.on('error', (err) => {
+    console.error(`[Bridge] Error en socket cliente:`, err.message);
+    connectedClients.delete(ws);
+  });
+});
+
+wss.on('error', (err) => {
+  console.error('[Bridge] Error en Servidor WebSocket:', err.message);
+});
+
+// ==========================================
+// 2. GESTIÓN DEL SOCKET DE HERDR
 // ==========================================
 function fetchHerdrSnapshot() {
   return new Promise((resolve) => {
@@ -48,7 +103,7 @@ function fetchHerdrSnapshot() {
 
     try {
       client = net.createConnection(HERDR_SOCK_PATH, () => {
-        const req = { id: `br:${Date.now()}`, method: 'session.snapshot', params: {} };
+        const req = { id: `ws_br:${Date.now()}`, method: 'session.snapshot', params: {} };
         client.write(JSON.stringify(req) + '\n');
       });
 
@@ -95,10 +150,8 @@ function parseSnapshotToDisplayData(snapshot) {
   const panes = snapshot.panes || [];
   const focusedPaneId = snapshot.focused_pane_id;
 
-  // Buscar agente enfocado o el primer agente activo
   let currentAgent = agents.find((a) => a.pane_id === focusedPaneId) || agents[0];
 
-  // Si el agente enfocado está en idle pero otro está trabajando/bloqueado, darle prioridad visual
   const busyAgent = agents.find((a) => a.agent_status === 'working' || a.agent_status === 'blocked');
   if (busyAgent && currentAgent?.agent_status === 'idle') {
     currentAgent = busyAgent;
@@ -121,14 +174,11 @@ function parseSnapshotToDisplayData(snapshot) {
     }
   }
 
-  // Título de la sesión o tarea
   let title = currentAgent?.terminal_title_stripped || currentAgent?.terminal_title || 'Sesión Herdr';
-  // Limpiar prefijo común "OC | " para que se lea mejor en la pantalla de 128px
   if (title.startsWith('OC | ')) {
     title = title.substring(5).trim();
   }
 
-  // Resumen de pestañas / panes (hasta 6)
   const tabs = [];
   const relevantPanes = panes.filter((p) => p.agent_status && p.agent_status !== 'unknown').slice(0, 6);
   for (const p of relevantPanes) {
@@ -151,131 +201,28 @@ function parseSnapshotToDisplayData(snapshot) {
 }
 
 // ==========================================
-// 2. DETECCIÓN INTELIGENTE Y HANDSHAKE SERIAL
-// ==========================================
-async function scanAndConnectSerial() {
-  if (activeSerialPort && activeSerialPort.isOpen) {
-    return;
-  }
-
-  try {
-    const ports = await SerialPort.list();
-    const now = Date.now();
-
-    // Filtrar candidatos USB comunes en macOS
-    const candidates = ports.filter((p) => {
-      const path = p.path.toLowerCase();
-      const isUsb = path.includes('usbserial') || path.includes('wchusbserial') || path.includes('usbmodem');
-      const isIgnored = ignoredPorts.has(p.path) && ignoredPorts.get(p.path) > now;
-      return isUsb && !isIgnored;
-    });
-
-    for (const portInfo of candidates) {
-      const isHerdrTFT = await tryHandshake(portInfo.path);
-      if (isHerdrTFT) {
-        console.log(`[Bridge] Dispositivo Herdr TFT conectado exitosamente en ${portInfo.path}`);
-        return;
-      } else {
-        console.log(`[Bridge] Dispositivo en ${portInfo.path} no es Herdr TFT. Ignorando 15s para no bloquear otros proyectos.`);
-        ignoredPorts.set(portInfo.path, now + 15000);
-      }
-    }
-  } catch (err) {
-    console.error('[Bridge] Error escaneando puertos serie:', err.message);
-  }
-}
-
-function tryHandshake(portPath) {
-  return new Promise((resolve) => {
-    let port;
-    let parser;
-    let resolved = false;
-
-    const cleanup = () => {
-      if (resolved) return;
-      resolved = true;
-      if (port && port.isOpen) {
-        port.close(() => resolve(false));
-      } else {
-        resolve(false);
-      }
-    };
-
-    const timeout = setTimeout(cleanup, 1200);
-
-    try {
-      port = new SerialPort({ path: portPath, baudRate: BAUD_RATE, autoOpen: false });
-      parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
-
-      port.open((err) => {
-        if (err) {
-          clearTimeout(timeout);
-          cleanup();
-          return;
-        }
-
-        // Enviar handshake de descubrimiento
-        port.write('{"cmd":"HERDR_DISCOVER"}\n');
-
-        parser.on('data', (line) => {
-          line = line.trim();
-          if (line.includes('herdr-tft')) {
-            clearTimeout(timeout);
-            resolved = true;
-            activeSerialPort = port;
-            activeParser = parser;
-            activeDevicePath = portPath;
-
-            // Configurar manejadores permanentes
-            port.on('close', () => {
-              console.log(`[Bridge] Conexión serial cerrada en ${portPath}`);
-              activeSerialPort = null;
-              activeParser = null;
-              activeDevicePath = null;
-            });
-            port.on('error', (e) => {
-              console.error(`[Bridge] Error en puerto ${portPath}:`, e.message);
-              activeSerialPort = null;
-              activeParser = null;
-              activeDevicePath = null;
-            });
-
-            resolve(true);
-          }
-        });
-      });
-    } catch (e) {
-      clearTimeout(timeout);
-      cleanup();
-    }
-  });
-}
-
-// ==========================================
-// 3. BUCLE PRINCIPAL DE ENVÍO
+// 3. BROADCAST PERIÓDICO A LOS CLIENTES
 // ==========================================
 async function mainLoop() {
-  if (activeSerialPort && activeSerialPort.isOpen) {
-    const snapshot = await fetchHerdrSnapshot();
-    const data = parseSnapshotToDisplayData(snapshot);
-    const jsonStr = JSON.stringify(data);
-    const now = Date.now();
+  if (connectedClients.size === 0) {
+    return; // Si no hay pantallas conectadas por WiFi, descansar CPU
+  }
 
-    // Enviar solo si cambió el estado o pasaron más de HEARTBEAT_INTERVAL_MS
-    if (jsonStr !== lastPayloadSent || (now - lastSentTime >= HEARTBEAT_INTERVAL_MS)) {
-      activeSerialPort.write(jsonStr + '\n', (err) => {
-        if (!err) {
-          lastPayloadSent = jsonStr;
-          lastSentTime = now;
-        }
-      });
+  const snapshot = await fetchHerdrSnapshot();
+  const data = parseSnapshotToDisplayData(snapshot);
+  const jsonStr = JSON.stringify(data);
+  const now = Date.now();
+
+  if (jsonStr !== lastPayloadSent || (now - lastSentTime >= HEARTBEAT_INTERVAL_MS)) {
+    lastPayloadSent = jsonStr;
+    lastSentTime = now;
+
+    for (const ws of connectedClients) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(jsonStr);
+      }
     }
-  } else {
-    // Si no hay puerto conectado, escanear periódicamente
-    await scanAndConnectSerial();
   }
 }
 
-// Iniciar bucles periódicos
 setInterval(mainLoop, SNAPSHOT_INTERVAL_MS);
-console.log('[Bridge] Monitoreando puertos serie y socket Herdr...');

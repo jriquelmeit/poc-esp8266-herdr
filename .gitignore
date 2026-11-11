@@ -1,6 +1,7 @@
 .pio/
 .vscode/
 bridge/node_modules/
+include/secrets.h
 *.log
 *.err
 .DS_Store

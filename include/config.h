@@ -2,6 +2,13 @@
 
 #include <Arduino.h>
 
+#if __has_include("secrets.h")
+    #include "secrets.h"
+#else
+    #warning "No se encontro secrets.h. Usando secrets.h.example. Copia secrets.h.example a secrets.h con tus credenciales."
+    #include "secrets.h.example"
+#endif
+
 // ==========================================
 // CONFIGURACIÓN DE PANTALLA
 // ==========================================
@@ -31,4 +38,4 @@
 // ==========================================
 #define SERIAL_BAUD_RATE    115200
 #define SERIAL_BUFFER_SIZE  512
-#define HEARTBEAT_TIMEOUT   4000UL // Si en 4s no llegan datos, pasa a Standby
+#define HEARTBEAT_TIMEOUT   6000UL // Si en 6s no llegan datos por WebSocket, pasa a Standby
