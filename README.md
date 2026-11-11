@@ -79,7 +79,9 @@ Puedes usar el script `./scripts/manage.sh` o los comandos nativos de `launchctl
 
 | Acción | Comando |
 | :--- | :--- |
-| **Ver estado del servicio y puertos USB** | `./scripts/manage.sh status` |
+| **Instalar servicio launchd en macOS** | `make install` |
+| **Desinstalar y eliminar servicio launchd** | `make uninstall` |
+| **Ver estado del servicio y puertos USB** | `make status` (o `./scripts/manage.sh status`) |
 | **Ver logs en tiempo real** | `./scripts/manage.sh logs` |
 | **Detener el bridge** | `./scripts/manage.sh stop` |
 | **Iniciar el bridge** | `./scripts/manage.sh start` |

@@ -29,6 +29,16 @@ case "$1" in
         echo "  Ruta generada: $PLIST_DST"
         ;;
 
+    uninstall)
+        echo "==> Desinstalando LaunchAgent de macOS..."
+        launchctl unload "$PLIST_DST" 2>/dev/null
+        if [ -f "$PLIST_DST" ]; then
+            rm -f "$PLIST_DST"
+            echo "✔ Archivo plist eliminado: $PLIST_DST"
+        fi
+        echo "✔ Servicio desinstalado por completo."
+        ;;
+
     start)
         echo "==> Iniciando servicio bridge..."
         launchctl load "$PLIST_DST" 2>/dev/null
@@ -99,10 +109,11 @@ case "$1" in
         ;;
 
     *)
-        echo "Uso: $0 {install|start|stop|restart|status|free-port|flash|logs}"
+        echo "Uso: $0 {install|uninstall|start|stop|restart|status|free-port|flash|logs}"
         echo ""
         echo "Comandos:"
         echo "  install    : Instala e inicia el LaunchAgent en macOS (~/Library/LaunchAgents)"
+        echo "  uninstall  : Detiene y elimina el LaunchAgent de macOS"
         echo "  start      : Inicia el bridge"
         echo "  stop       : Detiene el bridge y libera el USB"
         echo "  restart    : Reinicia el bridge"

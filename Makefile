@@ -7,7 +7,7 @@ PROJECT_DIR := $(shell pwd)
 SCRIPTS_DIR := $(PROJECT_DIR)/scripts
 BRIDGE_DIR := $(PROJECT_DIR)/bridge
 
-.PHONY: all help build upload flash monitor clean deps install start stop restart status logs free-port
+.PHONY: all help build upload flash monitor clean deps install uninstall start stop restart status logs free-port
 
 # Target por defecto: ayuda
 all: help
@@ -26,6 +26,7 @@ help:
 	@echo " Bridge y Servicio en macOS (launchd):"
 	@echo "   make deps        - Instala dependencias npm del bridge en bridge/"
 	@echo "   make install     - Instala e inicia el LaunchAgent (~/Library/LaunchAgents)"
+	@echo "   make uninstall   - Detiene y desinstala el LaunchAgent de macOS"
 	@echo "   make start       - Inicia el servicio en segundo plano"
 	@echo "   make stop        - Detiene el servicio y libera el puerto USB"
 	@echo "   make restart     - Reinicia el servicio bridge"
@@ -66,6 +67,9 @@ deps:
 
 install:
 	@$(SCRIPTS_DIR)/manage.sh install
+
+uninstall:
+	@$(SCRIPTS_DIR)/manage.sh uninstall
 
 start:
 	@$(SCRIPTS_DIR)/manage.sh start
