@@ -1,5 +1,6 @@
 .pio/
 .vscode/
+.idea/
 bridge/node_modules/
 include/secrets.h
 *.log
